@@ -217,13 +217,88 @@ int time_step=100;
 bool in_dead_zone[]={0,0,0,0}; //0=not, 1=in
 bool start_leg=false;
 
+void Advance_Robot()
+{
+  // Record the start position and start time
+  start = millis();
+  int start_pos=dxl.getPresentPosition(1, UNIT_DEGREE);
+  int curr_pos=0;
+  do
+  {
+    long elapsed = millis() - start;
+  
+    if (elapsed-last_time>time_step){
+      last_time=elapsed;
+      for (int i=0;i<total_legs;i++){
+        
+        float desired_pos=get_desired_angle(i,elapsed,&start_leg);
+        start_back_wheel(start_leg);
+        if (Directions[i]==1) desired_pos=360.0-desired_pos;
+          
+        print_position(elapsed, i,desired_pos);
+        
+        if (in_dead_zone[i]==0){
+
+          
+          if (desired_pos<300)
+            dxl.setGoalPosition(IDs[i], desired_pos, UNIT_DEGREE);
+          else{
+            in_dead_zone[i]=1;
+
+            float present_speed=dxl.getPresentVelocity(IDs[i]);
+            dxl.torqueOff(IDs[i]);
+            dxl.setOperatingMode(IDs[i], OP_VELOCITY);
+            dxl.torqueOn(IDs[i]);
+            //1 rpm=6 deg/s=9 unit
+            //1 unit= 2/3 deg/s
+            delay(10);
+            if(Directions[i]==0)
+              dxl.setGoalVelocity(IDs[i], 1.5*omega_fast()+dead_zone_speed_tuning);
+            else
+              dxl.setGoalVelocity(IDs[i], 1024+1.5*omega_fast()+dead_zone_speed_tuning);
+            
+          }
+          delay(10);   
+        }
+        else{
+          int current_pos=dxl.getPresentPosition(IDs[i], UNIT_DEGREE);
+          bool flag_temp=0;
+          
+          
+          if(Directions[i]==0)
+              flag_temp=current_pos>20;
+          else
+              flag_temp=current_pos<280;
+            
+          
+          if (flag_temp && desired_pos>45&& desired_pos<300){
+            in_dead_zone[i]=0;
+            dxl.torqueOff(IDs[i]);
+            dxl.setOperatingMode(IDs[i], OP_POSITION);
+            dxl.torqueOn(IDs[i]);
+            //1 rpm=6 deg/s=9 unit
+            //1 unit= 2/3 deg/s
+            delay(10);
+            dxl.setGoalPosition(IDs[i], desired_pos, UNIT_DEGREE);
+          }
+          
+        }
+      }
+      curr_pos=dxl.getPresentPosition(i, UNIT_DEGREE);
+    }
+  } while (curr_pos != start_pos);
+  
+  
+}
 
 void loop() {
   // put your main code here, to run repeatedly:
   
   // Please refer to e-Manual(http://emanual.robotis.com/docs/en/parts/interface/dynamixel_shield/) for available range of value. 
   // Set Goal Position in RAW value
-  long elapsed = millis() - start;
+  Advance_Robot();
+  delay(5000);
+  /*long elapsed = millis() - start;
   
   if (elapsed-last_time>time_step){
     last_time=elapsed;
@@ -282,6 +357,6 @@ void loop() {
         
       }
     }
-  }
+  }*/
   
 }
