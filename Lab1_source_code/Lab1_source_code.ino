@@ -2,6 +2,10 @@
 
 #include <DynamixelShield.h>
 #include <stdlib.h>
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BNO055.h>
+#include <utility/imumaths.h>
 #if defined(ARDUINO_AVR_UNO) || defined(ARDUINO_AVR_MEGA2560)
   #include <SoftwareSerial.h>
   SoftwareSerial soft_serial(7, 8); // DYNAMIXELShield UART RX/TX
@@ -24,7 +28,7 @@ float gait_dir_compensation[]={0,240,240,0}; //degree compensation for the legs 
 
 float gait_bound[]={0,0.5,0.5}; // bound gait
 float gait_trot[]={0.5,0,0.5}; // trot gait
-float gait_walk[]={0.5,0.25,0.75}; // walk gait
+float gait_walk[]={0.5,0.25,0.75};// walk gait
 
 int Leg_zeroing_offset[]={60,60,150,60}; //zeroing calibration offset in deg; leg angular position, ϕ, is defined as the angle measured clockwise about the axle from the upward vertical to the leg position, in radians. A zeroing calibration offset is needed because the servo’s zero position is not vertically downward and there is the offset between the servo-leg connector and the servo.  
                                         //by default is 60, which means when position command is 0, all legs should be pointing vertically upward.  
@@ -41,6 +45,11 @@ float phi_s=0.85; //in rad, ϕ_s is the angular extent of the slow phase
 float phi_0=2.75; //in rad, ϕ_0 is the center of the slow phase 
 float d_c=0.56;//d_c is the duty factor of the slow phase (i.e. fraction of the period spent in the slow phase). 
 float clock_period=4; //in seconds, time to complete 1 rotation
+
+int obstaclePin = 8;
+int hasObstacle = HIGH;
+
+Adafruit_BNO055 bno = Adafruit_BNO055(55);
 
 float convert_rad_to_degree(float rad_val) {
   float degree_val = 0.0;
@@ -180,6 +189,7 @@ void start_back_wheel(bool state){
 }
 
 long start;
+float start_orientation;
 
 void setup() {
   // put your setup code here, to run once:
@@ -197,6 +207,7 @@ void setup() {
     dxl.setOperatingMode(IDs[i], OP_POSITION);
     dxl.torqueOn(IDs[i]);
     delay(100);
+    dxl.setGoalPosition(IDs[i], 100, UNIT_DEGREE);
 
    
   }
@@ -207,12 +218,38 @@ void setup() {
   dxl.setOperatingMode(6, OP_VELOCITY);
   dxl.torqueOn(6);  
 
+  dxl.torqueOff(2);
+  dxl.setOperatingMode(2, OP_POSITION);
+  dxl.torqueOn(2);
+    dxl.torqueOff(4);
+  dxl.setOperatingMode(4, OP_POSITION);
+  dxl.torqueOn(4);
+
+  dxl.setGoalPosition(2, 150 , UNIT_DEGREE);
+  dxl.setGoalPosition(4, 150  , UNIT_DEGREE);
+  
   start = millis();
   clock_init();
   translate_gait_deg(); 
+
+  pinMode(obstaclePin, INPUT);
+
+  if(!bno.begin())
+  {
+    /* There was a problem detecting the BNO055 ... check your connections */
+    Serial.print("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
+    while(1);
+  }
+  
+  delay(1000);
+    
+  bno.setExtCrystalUse(true); 
+  start_orientation = get_x_orientation();
+  
+  
 }
 
-long last_time=0;
+
 int time_step=100;
 bool in_dead_zone[]={0,0,0,0}; //0=not, 1=in
 bool start_leg=false;
@@ -220,12 +257,18 @@ bool start_leg=false;
 void Advance_Robot()
 {
   // Record the start position and start time
+  DEBUG_SERIAL.print("starting loop");
+  long last_time=0;
   start = millis();
-  int start_pos=dxl.getPresentPosition(1, UNIT_DEGREE);
+  int start_pos= 100;
+  dxl.setGoalPosition(1, start_pos, UNIT_DEGREE);
   int curr_pos=0;
+  int count =0;
+  long elapsed=0;
+  
   do
   {
-    long elapsed = millis() - start;
+    elapsed = millis() - start;
   
     if (elapsed-last_time>time_step){
       last_time=elapsed;
@@ -235,7 +278,7 @@ void Advance_Robot()
         start_back_wheel(start_leg);
         if (Directions[i]==1) desired_pos=360.0-desired_pos;
           
-        print_position(elapsed, i,desired_pos);
+      //  print_position(elapsed, i,desired_pos);
         
         if (in_dead_zone[i]==0){
 
@@ -284,10 +327,47 @@ void Advance_Robot()
           
         }
       }
-      curr_pos=dxl.getPresentPosition(i, UNIT_DEGREE);
+      curr_pos=dxl.getPresentPosition(1, UNIT_DEGREE);
+      count++;
+      
+      DEBUG_SERIAL.print("count=");
+      DEBUG_SERIAL.print(count);
+      DEBUG_SERIAL.print(" corrpos=");
+      DEBUG_SERIAL.println(curr_pos); 
     }
-  } while (curr_pos != start_pos);
+    
+  } while (elapsed < clock_period*1000);//(count<10) || !((curr_pos > 100) && (curr_pos < 132)));
   
+  
+}
+
+float get_x_orientation(){
+  sensors_event_t event; 
+  bno.getEvent(&event);
+
+  return event.orientation.x;
+}
+
+bool sense_obs(int leg){
+
+  hasObstacle = digitalRead(obstaclePin);
+  if (hasObstacle == LOW)
+  {
+   
+    return LOW;
+  }
+  else
+  {
+    
+    return HIGH;
+  }
+  
+}
+
+void set_search_angles(float val){
+  dxl.setGoalPosition(2, 150 +val , UNIT_DEGREE);
+  dxl.setGoalPosition(4, 150+val  , UNIT_DEGREE);
+  return;
   
 }
 
@@ -296,8 +376,19 @@ void loop() {
   
   // Please refer to e-Manual(http://emanual.robotis.com/docs/en/parts/interface/dynamixel_shield/) for available range of value. 
   // Set Goal Position in RAW value
+
+  float orientation = get_x_orientation();
+  float sigma = orientation - start_orientation;
+
+  DEBUG_SERIAL.print("orient raw=");
+      DEBUG_SERIAL.print(orientation);
+      DEBUG_SERIAL.print(" sigma=");
+      DEBUG_SERIAL.println(sigma);
+
+  
+  //set_search_angles(sigma);
   Advance_Robot();
-  delay(5000);
+  delay(2000);
   /*long elapsed = millis() - start;
   
   if (elapsed-last_time>time_step){
