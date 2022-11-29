@@ -237,14 +237,13 @@ void setup() {
   if(!bno.begin())
   {
     /* There was a problem detecting the BNO055 ... check your connections */
-    Serial.print("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
+    DEBUG_SERIAL.print("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
     while(1);
   }
   
   delay(1000);
     
   bno.setExtCrystalUse(true); 
-  start_orientation = get_x_orientation();
   
   
 }
@@ -376,18 +375,33 @@ void loop() {
   
   // Please refer to e-Manual(http://emanual.robotis.com/docs/en/parts/interface/dynamixel_shield/) for available range of value. 
   // Set Goal Position in RAW value
-
-  float orientation = get_x_orientation();
+sensors_event_t event; 
+  bno.getEvent(&event);
+  
+  /* Display the floating point data */
+  DEBUG_SERIAL.print("X: ");
+  DEBUG_SERIAL.print(event.orientation.x, 4);
+  DEBUG_SERIAL.print("\tY: ");
+  DEBUG_SERIAL.print(event.orientation.y, 4);
+  DEBUG_SERIAL.print("\tZ: ");
+  DEBUG_SERIAL.print(event.orientation.z, 4);
+  DEBUG_SERIAL.println("");/*
+  float orientation =event.orientation.x;
   float sigma = orientation - start_orientation;
 
   DEBUG_SERIAL.print("orient raw=");
       DEBUG_SERIAL.print(orientation);
       DEBUG_SERIAL.print(" sigma=");
-      DEBUG_SERIAL.println(sigma);
+      DEBUG_SERIAL.println(sigma);*/
 
-  
+  dxl.torqueOff(2);
+  dxl.torqueOff(4);
   //set_search_angles(sigma);
   Advance_Robot();
+  dxl.torqueOn(2);
+  dxl.torqueOn(4);
+  dxl.setGoalPosition(2, 150  , UNIT_DEGREE);
+  dxl.setGoalPosition(4, 150 , UNIT_DEGREE);
   delay(2000);
   /*long elapsed = millis() - start;
   
