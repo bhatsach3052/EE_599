@@ -175,10 +175,21 @@ int dead_zone_speed_tuning=0; //adjustment to tune deadzone speed, MAGIC Variabl
 ////////////////////////////////////////////// Do not change any code below this line/////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void start_back_wheel(bool state){
+void start_back_wheel(bool state, int dir){
   if((state == true)){
-   dxl.setGoalVelocity(5, 1024+2*omega_fast());
-   dxl.setGoalVelocity(6, 2*omega_fast());
+    
+      dxl.setGoalVelocity(5, 1024+2*omega_fast());
+      dxl.setGoalVelocity(6, 2*omega_fast());
+    
+    if((dir==1) ){
+      dxl.setGoalVelocity(6, 0);
+    }
+    else if(dir==2){
+      dxl.setGoalVelocity(5, 0);;
+      
+    }
+   
+   
    
   }
   else if ((state == false)){
@@ -232,13 +243,13 @@ void setup() {
   clock_init();
   translate_gait_deg(); 
 
-  pinMode(obstaclePin, INPUT);
+//  pinMode(obstaclePin, INPUT);
 
   if(!bno.begin())
   {
     /* There was a problem detecting the BNO055 ... check your connections */
     DEBUG_SERIAL.print("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
-    while(1);
+    //while(1);
   }
   
   delay(1000);
@@ -253,7 +264,7 @@ int time_step=100;
 bool in_dead_zone[]={0,0,0,0}; //0=not, 1=in
 bool start_leg=false;
 
-void Advance_Robot()
+void Advance_Robot(int dir)
 {
   // Record the start position and start time
   DEBUG_SERIAL.print("starting loop");
@@ -261,8 +272,6 @@ void Advance_Robot()
   start = millis();
   int start_pos= 100;
   dxl.setGoalPosition(1, start_pos, UNIT_DEGREE);
-  int curr_pos=0;
-  int count =0;
   long elapsed=0;
   
   do
@@ -274,7 +283,8 @@ void Advance_Robot()
       for (int i=0;i<total_legs;i++){
         
         float desired_pos=get_desired_angle(i,elapsed,&start_leg);
-        start_back_wheel(start_leg);
+        
+        start_back_wheel(start_leg,dir);
         if (Directions[i]==1) desired_pos=360.0-desired_pos;
           
       //  print_position(elapsed, i,desired_pos);
@@ -326,17 +336,12 @@ void Advance_Robot()
           
         }
       }
-      curr_pos=dxl.getPresentPosition(1, UNIT_DEGREE);
-      count++;
       
-      DEBUG_SERIAL.print("count=");
-      DEBUG_SERIAL.print(count);
-      DEBUG_SERIAL.print(" corrpos=");
-      DEBUG_SERIAL.println(curr_pos); 
     }
     
-  } while (elapsed < clock_period*1000);//(count<10) || !((curr_pos > 100) && (curr_pos < 132)));
-  
+  } while (elapsed < clock_period*1000);
+  dxl.setGoalPosition(1, start_pos, UNIT_DEGREE);
+ 
   
 }
 
@@ -364,8 +369,8 @@ bool sense_obs(int leg){
 }
 
 void set_search_angles(float val){
-  dxl.setGoalPosition(2, 150 +val , UNIT_DEGREE);
-  dxl.setGoalPosition(4, 150+val  , UNIT_DEGREE);
+  dxl.setGoalPosition(2, 150 -val , UNIT_DEGREE);
+  dxl.setGoalPosition(4, 150-val  , UNIT_DEGREE);
   return;
   
 }
@@ -377,32 +382,56 @@ void loop() {
   // Set Goal Position in RAW value
 sensors_event_t event; 
   bno.getEvent(&event);
+  int dir =0;
   
-  /* Display the floating point data */
-  DEBUG_SERIAL.print("X: ");
-  DEBUG_SERIAL.print(event.orientation.x, 4);
-  DEBUG_SERIAL.print("\tY: ");
-  DEBUG_SERIAL.print(event.orientation.y, 4);
-  DEBUG_SERIAL.print("\tZ: ");
-  DEBUG_SERIAL.print(event.orientation.z, 4);
-  DEBUG_SERIAL.println("");/*
+  
   float orientation =event.orientation.x;
   float sigma = orientation - start_orientation;
 
   DEBUG_SERIAL.print("orient raw=");
       DEBUG_SERIAL.print(orientation);
       DEBUG_SERIAL.print(" sigma=");
-      DEBUG_SERIAL.println(sigma);*/
+      DEBUG_SERIAL.println(sigma);
+      if(sigma > 180){
+        sigma = sigma - 360;
+      }
+DEBUG_SERIAL.println(sigma);
+      
 
   dxl.torqueOff(2);
   dxl.torqueOff(4);
   //set_search_angles(sigma);
-  Advance_Robot();
-  dxl.torqueOn(2);
-  dxl.torqueOn(4);
+  if(abs(sigma) > 40){
+    /*
+        float x = 150-sigma;
+        DEBUG_SERIAL.println(x);
+        if(x > 150){
+          dxl.setGoalPosition(4, max(x,200) , UNIT_DEGREE);
+          dxl.setGoalPosition(2, 160  , UNIT_DEGREE);
+          dir = 0;
+        }
+        else{
+          dxl.setGoalPosition(4, 140 , UNIT_DEGREE);
+          dxl.setGoalPosition(2, max(x,100),UNIT_DEGREE);
+          dir = 0;
+        }
+        */
+        
+      }
+      else{
+        dir = 0;
   dxl.setGoalPosition(2, 150  , UNIT_DEGREE);
   dxl.setGoalPosition(4, 150 , UNIT_DEGREE);
-  delay(2000);
+      }
+     dxl.torqueOff(2);
+  dxl.torqueOff(4); 
+  Advance_Robot(dir);
+  dxl.setGoalPosition(2, 147  , UNIT_DEGREE);
+  dxl.setGoalPosition(4, 147 , UNIT_DEGREE);
+  dxl.torqueOn(2);
+  dxl.torqueOn(4);
+  
+  delay(500);
   /*long elapsed = millis() - start;
   
   if (elapsed-last_time>time_step){
